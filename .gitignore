@@ -21,3 +21,10 @@ ltmain.sh
 m4/
 missing
 stamp-h1
+.libs/
+ar-lib
+libnebapi.la
+src/.dirstamp
+src/.libs/
+src/nebapi.lo
+src/nebapi.o
