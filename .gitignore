@@ -28,3 +28,4 @@ src/.dirstamp
 src/.libs/
 src/nebapi.lo
 src/nebapi.o
+libnebapi.o
