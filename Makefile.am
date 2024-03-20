@@ -12,5 +12,5 @@ libnebapi_la_SOURCES = nebapi.c
 
 
 distclean-local: clean
-	$(RM) -rf .deps/ Makefile.in aclocal.m4 autom4te.cache config.* configure depcomp install-sh missing *.gz
+	$(RM) -rf .deps/ Makefile Makefile.in aclocal.m4 autogen.sh autom4te.cache/ compile config.guess config.h config.h.in config.log config.status config.sub configure depcomp install-sh libtool ltmain.sh m4/ missing stamp-h1
 
