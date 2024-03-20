@@ -1,16 +1,17 @@
-AUTOMAKE_OPTIONS = foreign
-ACLOCAL_AMFLAGS = -I m4
-
+# Define the shared library name and version
 lib_LTLIBRARIES = libnebapi.la
 
-# Setze subdir-objects nur für das Unterverzeichnis src
-SUBDIRS = src
-srcdir = $(top_srcdir)/src
+# Source files for the library
+libnebapi_la_SOURCES = src/nebapi.c
 
-# Setze die Quelldateien für die Bibliothek
-libnebapi_la_SOURCES = nebapi.c
+# Include directories
+INCLUDES = -I$(top_srcdir)/include
 
+# Header files for the library
+nobase_include_HEADERS = include/nebapi/nebapi.h
 
-distclean-local: clean
-	$(RM) -rf .deps/ Makefile Makefile.in aclocal.m4 autogen.sh autom4te.cache/ compile config.guess config.h config.h.in config.log config.status config.sub configure depcomp install-sh libtool ltmain.sh m4/ missing stamp-h1
+# Install the library
+pkglib_LTLIBRARIES = $(lib_LTLIBRARIES)
 
+# Tell Automake to install header files
+include_HEADERS = include/nebapi/nebapi.h

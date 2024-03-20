@@ -11,6 +11,8 @@ config.h.in
 config.log
 config.status
 config.sub
+config.h.in~
+configure~
 configure
 depcomp
 install-sh
