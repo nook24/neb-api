@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEB-API WebSocket Example</title>
+</head>
+
+<body>
+    <h1>Websocket status: <span id="ws_status" style="color:blue;">Connecting...</span> </h1>
+
+    <br>
+    <b>Last data:</b>
+    <br>
+    <div id="ws_data" style="border: 1px solid blue; padding: 15px;"></div>
+
+</body>
+
+
+<script>
+    let socket = new WebSocket("ws://localhost:8000/websocket/hostchecks");
+
+    socket.onopen = function (e) {
+        console.log("Connected");
+        document.getElementById('ws_status').textContent = "Connected";
+    };
+
+    socket.onmessage = function (event) {
+        console.log(event);
+        document.getElementById('ws_data').textContent = event.data;
+    };
+
+    socket.onclose = function (event) {
+        if (event.wasClean) {
+            console.log(event);
+        } else {
+            console.log("Connection died");
+        }
+        document.getElementById('ws_status').textContent = "NOT CONNECTED";
+    };
+
+    socket.onerror = function (error) {
+        console.error(error);
+        document.getElementById('ws_status').textContent = "Error";
+    };
+</script>
+
+</html>

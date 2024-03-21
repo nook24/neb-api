@@ -22,9 +22,10 @@ void *nebapi_module_handle = NULL;
 
 // Web server configuration
 static int ws_debug_level = MG_LL_INFO;
-struct mg_mgr ws_mgr;
 static const char *ws_listening_address = "http://0.0.0.0:8000";
 static int ws_exit_flag = false;
+
+struct mg_mgr mgr;
 
 // Web server thread
 pthread_t tid;
@@ -52,7 +53,12 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 			g_list_free(values);
 			// Single-threaded code path, for performance comparison
 			// The /fast URI responds immediately
-			//mg_http_reply(c, 200, "Host: foo.com\r\n", json_string_dub);
+			// mg_http_reply(c, 200, "Host: foo.com\r\n", json_string_dub);
+		}
+		else if (mg_http_match_uri(hm, "/websocket/hostchecks"))
+		{
+			mg_ws_upgrade(c, hm, NULL); // Upgrade HTTP to Websocket
+			c->data[0] = 'W';			// Set some unique mark on the connection
 		}
 	}
 	else if (ev == MG_EV_WAKEUP)
@@ -65,7 +71,7 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 // Web server thread function
 void *web_server_thread(void *data)
 {
-	struct mg_mgr mgr;
+	//struct mg_mgr mgr;
 	// struct mg_connection *nc;
 
 	// Initialize Mongoose event manager
@@ -89,6 +95,22 @@ void stop_web_server_thread()
 	ws_exit_flag = true;
 }
 
+static void push_hostchecks(struct mg_mgr *mgr) {
+  struct mg_connection *c;
+  for (c = mgr->conns; c != NULL; c = c->next) {
+
+			GList *values = g_hash_table_get_values(hostchecks);
+			// Iterate through the list and print the strings
+			for (GList *iter = values; iter != NULL; iter = iter->next)
+			{
+				const char *current_value = (const char *)iter->data;
+				mg_ws_send(c, current_value, strlen(current_value), WEBSOCKET_OP_TEXT);
+			}
+
+			g_list_free(values);
+  }
+}
+
 static int cb_host_check_data(int cb, void *data)
 {
 	json_object *hostcheck_object;
@@ -109,6 +131,8 @@ static int cb_host_check_data(int cb, void *data)
 	// Duplicate so we can free everything
 	json_string_dub = nm_strdup(json_string);
 	g_hash_table_insert(hostchecks, (gpointer)ds->host_name, g_strdup(json_string));
+
+	push_hostchecks(&mgr);
 
 	// Release resources
 	json_object_put(hostcheck_object);
