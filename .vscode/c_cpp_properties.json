@@ -4,7 +4,9 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/**",
-                "/home/nook24/git/naemon-core/build/include/**"
+                "/home/nook24/git/naemon-core/build/include/**",
+                "/usr/include/glib-2.0/**",
+                "/usr/lib/x86_64-linux-gnu/glib-2.0/include/**"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",

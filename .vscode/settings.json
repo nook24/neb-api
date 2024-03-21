@@ -1,5 +1,17 @@
 {
     "files.associations": {
-        "naemon.h": "c"
+        "naemon.h": "c",
+        "broker.h": "c",
+        "objects_service.h": "c",
+        "neberrors.h": "c",
+        "common.h": "c",
+        "shared.h": "c",
+        "libnaemon.h": "c",
+        "mongoose.h": "c",
+        "nebmodules.h": "c",
+        "nebstructs.h": "c",
+        "nebmods.h": "c",
+        "nebstructs_json.h": "c",
+        "commands.h": "c"
     }
 }
