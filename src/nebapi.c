@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <json-c/json.h>
 #include <glib.h>
-#include<unistd.h>
+#include <unistd.h>
 
 #include "nebstructs_json.h"
 
@@ -93,23 +93,13 @@ void stop_web_server_thread()
 	ws_exit_flag = true;
 }
 
-// https://github.com/cesanta/mongoose/blob/master/examples/multi-threaded-12m/main.c#L38C5-L38C14
-// das muss vermutlich auf mg_wakeup umgebaut werden:https://mongoose.ws/documentation/#mg_wakeup
-static void push_hostchecks(struct mg_mgr *mgr)
+// asynchronous push method that will not block the Naemon core.
+static void push_to_clients(struct mg_mgr *mgr, const char *buf)
 {
 	struct mg_connection *c;
 	for (c = mgr->conns; c != NULL; c = c->next)
 	{
-
-		GList *values = g_hash_table_get_values(hostchecks);
-		// Iterate through the list and print the strings
-		for (GList *iter = values; iter != NULL; iter = iter->next)
-		{
-			const char *current_value = (const char *)iter->data;
-			mg_ws_send(c, current_value, strlen(current_value), WEBSOCKET_OP_TEXT);
-		}
-
-		g_list_free(values);
+		mg_ws_send(c, buf, strlen(buf), WEBSOCKET_OP_TEXT);
 	}
 }
 
@@ -117,7 +107,6 @@ static int cb_host_check_data(int cb, void *data)
 {
 	json_object *hostcheck_object;
 	const char *json_string;
-	char *json_string_dub;
 
 	nebstruct_host_check_data *ds = (nebstruct_host_check_data *)data;
 
@@ -130,18 +119,11 @@ static int cb_host_check_data(int cb, void *data)
 	// Convert the JSON object to a string
 	json_string = json_object_to_json_string(hostcheck_object);
 
-	// Duplicate so we can free everything
-	json_string_dub = nm_strdup(json_string);
-	g_hash_table_insert(hostchecks, (gpointer)ds->host_name, g_strdup(json_string));
-
-	push_hostchecks(&mgr);
+	// Push host check to web sockets clients (async)
+	push_to_clients(&mgr, json_string);
 
 	// Release resources
 	json_object_put(hostcheck_object);
-
-	// Push last host check to web sockets clients
-
-	free(json_string_dub);
 
 	return 0;
 }
