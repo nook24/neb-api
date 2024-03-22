@@ -13,7 +13,7 @@
         {
             "label": "build",
             "type": "shell",
-            "command": "gcc -g -shared -o libnebapi.o -fPIC  -Wall -Werror ${cwd}/src/nebapi.c ${cwd}/src/nebstructs_json.c ${cwd}/src/mongoose.c -lpthread -I${cwd}/include -ljson-c -lglib-2.0 -I/usr/include/glib-2.0 -I/usr/lib/x86_64-linux-gnu/glib-2.0/include -lglib-2.0 -I/home/nook24/git/naemon-core/build/include",
+            "command": "gcc -g -shared -o libnebapi.o -fPIC  -Wall ${cwd}/src/nebapi.c ${cwd}/src/nebstructs_json.c ${cwd}/src/mongoose.c -lpthread -I${cwd}/include -ljson-c -lglib-2.0 -I/usr/include/glib-2.0 -I/usr/lib/x86_64-linux-gnu/glib-2.0/include -lglib-2.0 -I/home/nook24/git/naemon-core/build/include",
             "problemMatcher": [],
             "group": {
                 "kind": "build",
