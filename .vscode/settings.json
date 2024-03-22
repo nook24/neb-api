@@ -12,6 +12,8 @@
         "nebstructs.h": "c",
         "nebmods.h": "c",
         "nebstructs_json.h": "c",
-        "commands.h": "c"
+        "commands.h": "c",
+        "string.h": "c",
+        "json.h": "c"
     }
 }

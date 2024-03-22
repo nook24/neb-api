@@ -4,7 +4,9 @@ lib_LTLIBRARIES = libnebapi.la
 ACLOCAL_AMFLAGS = -I m4
 
 # Source files for the library
-libnebapi_la_SOURCES = src/nebapi.c src/mongoose.c
+libnebapi_la_SOURCES =  src/nebapi.c \
+                        src/nebstructs_json.c \
+                        src/mongoose.c
 
 # Include directories
 AM_CPPFLAGS = -I$(top_srcdir)/include

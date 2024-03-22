@@ -5,10 +5,7 @@
 #include <json-c/json.h>
 #include <glib.h>
 
-// todo add jsonc check to configure
-#ifndef HAVE_JSONC
-#define HAVE_JSONC
-#endif
+#include "nebstructs_json.h"
 
 /* include naemon */
 #include "naemon/naemon.h"
@@ -71,8 +68,8 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 // Web server thread function
 void *web_server_thread(void *data)
 {
-	//struct mg_mgr mgr;
-	// struct mg_connection *nc;
+	// struct mg_mgr mgr;
+	//  struct mg_connection *nc;
 
 	// Initialize Mongoose event manager
 	mg_mgr_init(&mgr);
@@ -95,20 +92,24 @@ void stop_web_server_thread()
 	ws_exit_flag = true;
 }
 
-static void push_hostchecks(struct mg_mgr *mgr) {
-  struct mg_connection *c;
-  for (c = mgr->conns; c != NULL; c = c->next) {
+// https://github.com/cesanta/mongoose/blob/master/examples/multi-threaded-12m/main.c#L38C5-L38C14
+// das muss vermutlich auf mg_wakeup umgebaut werden:https://mongoose.ws/documentation/#mg_wakeup
+static void push_hostchecks(struct mg_mgr *mgr)
+{
+	struct mg_connection *c;
+	for (c = mgr->conns; c != NULL; c = c->next)
+	{
 
-			GList *values = g_hash_table_get_values(hostchecks);
-			// Iterate through the list and print the strings
-			for (GList *iter = values; iter != NULL; iter = iter->next)
-			{
-				const char *current_value = (const char *)iter->data;
-				mg_ws_send(c, current_value, strlen(current_value), WEBSOCKET_OP_TEXT);
-			}
+		GList *values = g_hash_table_get_values(hostchecks);
+		// Iterate through the list and print the strings
+		for (GList *iter = values; iter != NULL; iter = iter->next)
+		{
+			const char *current_value = (const char *)iter->data;
+			mg_ws_send(c, current_value, strlen(current_value), WEBSOCKET_OP_TEXT);
+		}
 
-			g_list_free(values);
-  }
+		g_list_free(values);
+	}
 }
 
 static int cb_host_check_data(int cb, void *data)

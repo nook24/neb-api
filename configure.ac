@@ -13,6 +13,7 @@ AM_PROG_AR
 LT_INIT
 
 PKG_CHECK_MODULES([GLIB], [glib-2.0])
+PKG_CHECK_MODULES([JSONC], [json-c >= 0.12])
 AM_CFLAGS=$GLIB_CFLAGS
 
 CFLAGS="${CFLAGS} `pkg-config --cflags naemon`"
