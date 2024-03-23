@@ -29,7 +29,7 @@ struct mg_mgr mgr;
 pthread_t tid;
 
 // Hash tables
-GHashTable *hostchecks;
+GHashTable *map_hoststatus;
 
 // HTTP request callback
 static void fn(struct mg_connection *c, int ev, void *ev_data)
@@ -37,10 +37,11 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 	if (ev == MG_EV_HTTP_MSG)
 	{
 		struct mg_http_message *hm = (struct mg_http_message *)ev_data;
-		if (mg_http_match_uri(hm, "/fast"))
+		if (mg_http_match_uri(hm, "/hoststatus"))
 		{
+			// Return the latest host status for all hosts
 
-			GList *values = g_hash_table_get_values(hostchecks);
+			GList *values = g_hash_table_get_values(map_hoststatus);
 			// Iterate through the list and print the strings
 			for (GList *iter = values; iter != NULL; iter = iter->next)
 			{
@@ -49,16 +50,16 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 			}
 
 			g_list_free(values);
-			// Single-threaded code path, for performance comparison
-			// The /fast URI responds immediately
-			// mg_http_reply(c, 200, "Host: foo.com\r\n", json_string_dub);
 		}
-		else if (mg_http_match_uri(hm, "/websocket/hostchecks"))
+
+		else if (mg_http_match_uri(hm, "/websocket"))
 		{
+			// New WebSocket client
 			mg_ws_upgrade(c, hm, NULL); // Upgrade HTTP to Websocket
 			c->data[0] = 'W';			// Set some unique mark on the connection
 		}
 	}
+
 	else if (ev == MG_EV_WAKEUP)
 	{
 		struct mg_str *data = (struct mg_str *)ev_data;
@@ -103,6 +104,7 @@ static void push_to_clients(struct mg_mgr *mgr, const char *buf)
 	}
 }
 
+// Naemon callback for host checks
 static int cb_host_check_data(int cb, void *data)
 {
 	json_object *hostcheck_object;
@@ -111,7 +113,7 @@ static int cb_host_check_data(int cb, void *data)
 	nebstruct_host_check_data *ds = (nebstruct_host_check_data *)data;
 
 	if (ds->type != NEBTYPE_HOSTCHECK_PROCESSED)
-		return 0;
+		return NEB_OK;
 
 	// Encode the current host check event as JSON object
 	hostcheck_object = nebstruct_encode_host_check_as_json(ds);
@@ -125,7 +127,65 @@ static int cb_host_check_data(int cb, void *data)
 	// Release resources
 	json_object_put(hostcheck_object);
 
-	return 0;
+	return NEB_OK;
+}
+
+// Naemon callback for service checks
+static int cb_service_check_data(int cb, void *data)
+{
+	json_object *servicecheck_object;
+	const char *json_string;
+
+	nebstruct_service_check_data *ds = (nebstruct_service_check_data *)data;
+
+	if (ds->type != NEBTYPE_SERVICECHECK_PROCESSED)
+		return NEB_OK;
+
+	// Encode the current service check event as JSON object
+	servicecheck_object = nebstruct_encode_service_check_as_json(ds);
+
+	// Convert the JSON object to a string
+	json_string = json_object_to_json_string(servicecheck_object);
+
+	// Push service check to web sockets clients (async)
+	push_to_clients(&mgr, json_string);
+
+	// Release resources
+	json_object_put(servicecheck_object);
+
+	return NEB_OK;
+}
+
+// Naemon callback for host status
+static int cb_host_status_data(int cb, void *data)
+{
+	json_object *hoststatus_object;
+	const char *json_string;
+
+	nebstruct_host_status_data *ds = (nebstruct_host_status_data *)data;
+	if (ds == NULL)
+	{
+		return NEB_OK;
+	}
+
+	host *current_host = (host *)ds->object_ptr;
+
+	// Encode the current host status event as JSON object
+	hoststatus_object = nebstruct_encode_host_status_as_json(ds);
+
+	// Convert the JSON object to a string
+	json_string = json_object_to_json_string(hoststatus_object);
+
+	// Push host status to web sockets clients (async)
+	push_to_clients(&mgr, json_string);
+
+	// Push latest host status into hashmap
+	g_hash_table_insert(map_hoststatus, (gpointer)current_host->name, g_strdup(json_string));
+
+	// Release resources
+	json_object_put(hoststatus_object);
+
+	return NEB_OK;
 }
 
 // Broker initialize function
@@ -146,6 +206,7 @@ int nebmodule_init(int flags, char *args, nebmodule *handle)
 	// Welcome messages
 	nm_log(NSLOG_INFO_MESSAGE, "NEB-API: Hi :)");
 
+
 	// Start the web server in a separate thread
 	if (pthread_create(&tid, NULL, web_server_thread, NULL) != 0)
 	{
@@ -154,10 +215,12 @@ int nebmodule_init(int flags, char *args, nebmodule *handle)
 	}
 
 	// Create hashtabls
-	hostchecks = g_hash_table_new_full(g_str_hash, g_str_equal, NULL, g_free);
+	map_hoststatus = g_hash_table_new_full(g_str_hash, g_str_equal, NULL, g_free);
 
 	// Register callbacks
 	neb_register_callback(NEBCALLBACK_HOST_CHECK_DATA, nebapi_module_handle, 0, cb_host_check_data);
+	neb_register_callback(NEBCALLBACK_SERVICE_CHECK_DATA, nebapi_module_handle, 0, cb_service_check_data);
+	neb_register_callback(NEBCALLBACK_HOST_STATUS_DATA, nebapi_module_handle, 0, cb_host_status_data);
 
 	return NEB_OK;
 }
@@ -168,6 +231,8 @@ int nebmodule_deinit(int flags, int reason)
 
 	// Deregister all callbacks
 	neb_deregister_callback(NEBCALLBACK_HOST_CHECK_DATA, cb_host_check_data);
+	neb_deregister_callback(NEBCALLBACK_SERVICE_CHECK_DATA, cb_service_check_data);
+	neb_deregister_callback(NEBCALLBACK_HOST_STATUS_DATA, cb_host_status_data);
 
 	// Wait for the web server thread to terminate
 	nm_log(NSLOG_INFO_MESSAGE, "Wait for the web server thread to terminate");
@@ -175,7 +240,7 @@ int nebmodule_deinit(int flags, int reason)
 	pthread_join(tid, NULL);
 
 	// Cleanup hashmaps
-	g_hash_table_destroy(hostchecks);
+	g_hash_table_destroy(map_hoststatus);
 
 	return NEB_OK;
 }
