@@ -1,22 +1,40 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.colors.min.css" />
     <title>NEB-API WebSocket Example</title>
 </head>
 
 <body>
-    <h1>Websocket status: <span id="ws_status" style="color:blue;">Connecting...</span> </h1>
 
-    <br>
-    <b>Last data:</b>
-    <br>
-    <div id="ws_data" style="border: 1px solid blue; padding: 15px;"></div>
+    <body>
+        <main class="container-fluid">
 
+            <article>
+                <header>Websocket status: <span id="ws_status" class="pico-color-indigo-500"> Connecting...</span>
+                </header>
+
+                <div id="ws_data" style="border: 1px solid var(--pico-color-indigo-500); padding: 15px;"></div>
+
+                <footer>Footer</footer>
+            </article>
+
+            <div class="grid">
+                <div>
+                    <h1> </h1>
+                </div>
+            </div>
+            </div>
+        </main>
+    </body>
 </body>
 
+</html>
 
 <script>
     let socket = new WebSocket("ws://localhost:8000/websocket");
@@ -24,6 +42,7 @@
     socket.onopen = function (e) {
         console.log("Connected");
         document.getElementById('ws_status').textContent = "Connected";
+        setWsStatusColor('green');
     };
 
     socket.onmessage = function (event) {
@@ -38,16 +57,45 @@
             console.log("Connection died");
         }
         document.getElementById('ws_status').textContent = "NOT CONNECTED";
+        setWsStatusColor('red');
+
     };
 
     socket.onerror = function (error) {
         console.error(error);
         document.getElementById('ws_status').textContent = "Error";
+        setWsStatusColor('red');
     };
 
-    setInterval(function(){
-        socket.send("Paar daten vom javascript");
+    setInterval(function () {
+        socket.send("Browser sends data to Naemon Websocket - Naemon echoes it back to the client");
     }, 2500);
+
+    function setWsStatusColor(type) {
+        var wsStatusElement = document.getElementById('ws_status');
+
+
+        wsStatusElement.classList.remove('pico-color-indigo-500');
+        wsStatusElement.classList.remove('pico-color-red-500');
+        wsStatusElement.classList.remove('pico-color-jade-500');
+
+        switch (type) {
+            case 'green':
+                colorClass = 'pico-color-jade-500';
+                break;
+
+            case 'red':
+                colorClass = 'pico-color-red-500';
+                break;
+
+            default:
+                colorClass = 'pico-color-indigo-500';
+        }
+
+        document.getElementById('ws_status').classList.add(colorClass);
+
+    }
+
 
 </script>
 
