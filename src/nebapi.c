@@ -44,18 +44,51 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 	{
 		struct mg_http_message *hm = (struct mg_http_message *)ev_data;
 
-		if (mg_http_match_uri(hm, "/hoststatus"))
+		struct mg_str caps[3];
+		if (mg_match(hm->uri, mg_str("/hoststatus/#/"), caps))
+		{
+
+			// https://mongoose.ws/documentation/#mg_match
+			char hostname[256]; // Enough for any valid hostname
+
+			mg_http_get_var(&hm->uri, "#", hostname, sizeof(hostname));
+			printf("Hostname: '%s'\n", caps[0]);
+
+			// A hostname is set, return the host status for this host
+			const char *host_status = (const char *)g_hash_table_lookup(map_hoststatus, (gpointer)hostname);
+			if (host_status != NULL)
+			{
+				mg_http_reply(c, 200, "Content-Type: application/json\r\n", host_status);
+			}
+			else
+			{
+				mg_http_reply(c, 404, "Content-Type: text/plain\r\n", "Host not found");
+			}
+		}
+		else if (mg_http_match_uri(hm, "/hoststatus"))
 		{
 			// Return the latest host status for all hosts
 
 			GList *values = g_hash_table_get_values(map_hoststatus);
-			// Iterate through the list and print the strings
+			GString *json_array = g_string_new("[");
+
+			// Iterate through the list and append the strings
 			for (GList *iter = values; iter != NULL; iter = iter->next)
 			{
 				const char *current_value = (const char *)iter->data;
-				mg_http_reply(c, 200, "Host: foo.com\r\n", current_value);
+				g_string_append(json_array, current_value);
+
+				// If there is a next element, append a comma
+				if (iter->next != NULL)
+				{
+					g_string_append(json_array, ",");
+				}
 			}
 
+			g_string_append(json_array, "]");
+			mg_http_reply(c, 200, "Content-Type: application/json\r\n", json_array->str);
+
+			g_string_free(json_array, TRUE);
 			g_list_free(values);
 		}
 
@@ -64,7 +97,11 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 			// New WebSocket client connected
 			ws_connected_clients++;
 			mg_ws_upgrade(c, hm, NULL); // Upgrade HTTP to Websocket
-			c->data[0] = 'W';			// Set some unique mark on a connection
+
+			// Set some unique mark on a connection
+			// c->data[0] = 'W';
+			strncpy(c->data, g_uuid_string_random(), sizeof(c->data) - 1);
+			c->data[sizeof(c->data) - 1] = '\0';
 		}
 		else
 		{
@@ -93,8 +130,9 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 		for (struct mg_connection *wc = c->mgr->conns; wc != NULL; wc = wc->next)
 		{
 			// Send only to marked connections
-			//if (wc->data[0] == 'W')
-				mg_ws_send(wc, data->ptr, data->len, WEBSOCKET_OP_TEXT);
+			// if (wc->data[0] == 'W') {
+			mg_ws_send(wc, data->ptr, data->len, WEBSOCKET_OP_TEXT);
+			// }
 		}
 	}
 
@@ -191,7 +229,7 @@ static int cb_host_check_data(int cb, void *data)
 	// Convert the JSON object to a string
 	json_string = json_object_to_json_string(hostcheck_object);
 
-	//have_push_clients(&mgr);
+	// have_push_clients(&mgr);
 
 	// Push host check to web sockets clients (async)
 	push_to_clients(&mgr, json_string);
@@ -278,7 +316,6 @@ int nebmodule_init(int flags, char *args, nebmodule *handle)
 	// Welcome messages
 	nm_log(NSLOG_INFO_MESSAGE, "NEB-API: Hi :)");
 
-
 	// Start the web server in a separate thread
 	if (pthread_create(&tid, NULL, web_server_thread, NULL) != 0)
 	{
@@ -292,7 +329,7 @@ int nebmodule_init(int flags, char *args, nebmodule *handle)
 	// Register callbacks
 	neb_register_callback(NEBCALLBACK_HOST_CHECK_DATA, nebapi_module_handle, 0, cb_host_check_data);
 	// neb_register_callback(NEBCALLBACK_SERVICE_CHECK_DATA, nebapi_module_handle, 0, cb_service_check_data);
-	// neb_register_callback(NEBCALLBACK_HOST_STATUS_DATA, nebapi_module_handle, 0, cb_host_status_data);
+	neb_register_callback(NEBCALLBACK_HOST_STATUS_DATA, nebapi_module_handle, 0, cb_host_status_data);
 
 	return NEB_OK;
 }
@@ -304,7 +341,7 @@ int nebmodule_deinit(int flags, int reason)
 	// Deregister all callbacks
 	neb_deregister_callback(NEBCALLBACK_HOST_CHECK_DATA, cb_host_check_data);
 	// neb_deregister_callback(NEBCALLBACK_SERVICE_CHECK_DATA, cb_service_check_data);
-	// neb_deregister_callback(NEBCALLBACK_HOST_STATUS_DATA, cb_host_status_data);
+	neb_deregister_callback(NEBCALLBACK_HOST_STATUS_DATA, cb_host_status_data);
 
 	// Wait for the web server thread to terminate
 	nm_log(NSLOG_INFO_MESSAGE, "Wait for the web server thread to terminate");
