@@ -44,6 +44,11 @@
         console.error(error);
         document.getElementById('ws_status').textContent = "Error";
     };
+
+    setInterval(function(){
+        socket.send("Paar daten vom javascript");
+    }, 2500);
+
 </script>
 
 </html>

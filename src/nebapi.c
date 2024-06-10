@@ -22,6 +22,7 @@ void *nebapi_module_handle = NULL;
 static int ws_debug_level = MG_LL_INFO;
 static const char *ws_listening_address = "http://0.0.0.0:8000";
 static int ws_exit_flag = false;
+static int ws_connected_clients = 0;
 
 struct mg_mgr mgr;
 
@@ -34,9 +35,15 @@ GHashTable *map_hoststatus;
 // HTTP request callback
 static void fn(struct mg_connection *c, int ev, void *ev_data)
 {
-	if (ev == MG_EV_HTTP_MSG)
+
+	if (ev == MG_EV_OPEN && c->is_listening)
+	{
+		// empty
+	}
+	else if (ev == MG_EV_HTTP_MSG)
 	{
 		struct mg_http_message *hm = (struct mg_http_message *)ev_data;
+
 		if (mg_http_match_uri(hm, "/hoststatus"))
 		{
 			// Return the latest host status for all hosts
@@ -52,26 +59,83 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 			g_list_free(values);
 		}
 
-		else if (mg_http_match_uri(hm, "/websocket"))
+		if (mg_http_match_uri(hm, "/websocket"))
 		{
-			// New WebSocket client
+			// New WebSocket client connected
+			ws_connected_clients++;
 			mg_ws_upgrade(c, hm, NULL); // Upgrade HTTP to Websocket
-			c->data[0] = 'W';			// Set some unique mark on the connection
+			c->data[0] = 'W';			// Set some unique mark on a connection
+		}
+		else
+		{
+			// Serve static files
+			// struct mg_http_serve_opts opts = {.root_dir = s_web_root};
+			// mg_http_serve_dir(c, ev_data, &opts);
 		}
 	}
-
+	else if (ev == MG_EV_CLOSE)
+	{
+		// WebSocket Client disconnected
+		ws_connected_clients--;
+	}
+	else if (ev == MG_EV_WS_MSG)
+	{
+		// Got websocket frame. Received data is wm->data. Echo it back!
+		struct mg_ws_message *wm = (struct mg_ws_message *)ev_data;
+		mg_ws_send(c, wm->data.ptr, wm->data.len, WEBSOCKET_OP_TEXT);
+		mg_iobuf_del(&c->recv, 0, c->recv.len);
+	}
 	else if (ev == MG_EV_WAKEUP)
 	{
 		struct mg_str *data = (struct mg_str *)ev_data;
-		mg_http_reply(c, 200, "", "Result: %.*s\n", data->len, data->ptr);
+		// Broadcast message to all connected websocket clients.
+		// Traverse over all connections
+		for (struct mg_connection *wc = c->mgr->conns; wc != NULL; wc = wc->next)
+		{
+			// Send only to marked connections
+			//if (wc->data[0] == 'W')
+				mg_ws_send(wc, data->ptr, data->len, WEBSOCKET_OP_TEXT);
+		}
 	}
+
+	/*
+		if (ev == MG_EV_HTTP_MSG)
+		{
+			struct mg_http_message *hm = (struct mg_http_message *)ev_data;
+			if (mg_http_match_uri(hm, "/hoststatus"))
+			{
+				// Return the latest host status for all hosts
+
+				GList *values = g_hash_table_get_values(map_hoststatus);
+				// Iterate through the list and print the strings
+				for (GList *iter = values; iter != NULL; iter = iter->next)
+				{
+					const char *current_value = (const char *)iter->data;
+					mg_http_reply(c, 200, "Host: foo.com\r\n", current_value);
+				}
+
+				g_list_free(values);
+			}
+
+			else if (mg_http_match_uri(hm, "/websocket"))
+			{
+				// New WebSocket client
+				mg_ws_upgrade(c, hm, NULL); // Upgrade HTTP to Websocket
+				c->data[0] = 'W';			// Set some unique mark on the connection
+			}
+		}
+
+		else if (ev == MG_EV_WAKEUP)
+		{
+			struct mg_str *data = (struct mg_str *)ev_data;
+			mg_http_reply(c, 200, "", "Result: %.*s\n", data->len, data->ptr);
+		}
+		*/
 }
 
 // Web server thread function
 void *web_server_thread(void *data)
 {
-	// struct mg_mgr mgr;
-	//  struct mg_connection *nc;
 
 	// Initialize Mongoose event manager
 	mg_mgr_init(&mgr);
@@ -100,8 +164,14 @@ static void push_to_clients(struct mg_mgr *mgr, const char *buf)
 	struct mg_connection *c;
 	for (c = mgr->conns; c != NULL; c = c->next)
 	{
-		mg_ws_send(c, buf, strlen(buf), WEBSOCKET_OP_TEXT);
+		mg_wakeup(mgr, c->id, buf, strlen(buf)); // Send to parent
+												 // mg_ws_send(c, buf, strlen(buf), WEBSOCKET_OP_TEXT);
 	}
+}
+
+static int have_push_clients(struct mg_mgr *mgr)
+{
+	return ws_connected_clients > 0;
 }
 
 // Naemon callback for host checks
@@ -120,6 +190,8 @@ static int cb_host_check_data(int cb, void *data)
 
 	// Convert the JSON object to a string
 	json_string = json_object_to_json_string(hostcheck_object);
+
+	//have_push_clients(&mgr);
 
 	// Push host check to web sockets clients (async)
 	push_to_clients(&mgr, json_string);
@@ -219,8 +291,8 @@ int nebmodule_init(int flags, char *args, nebmodule *handle)
 
 	// Register callbacks
 	neb_register_callback(NEBCALLBACK_HOST_CHECK_DATA, nebapi_module_handle, 0, cb_host_check_data);
-	neb_register_callback(NEBCALLBACK_SERVICE_CHECK_DATA, nebapi_module_handle, 0, cb_service_check_data);
-	neb_register_callback(NEBCALLBACK_HOST_STATUS_DATA, nebapi_module_handle, 0, cb_host_status_data);
+	// neb_register_callback(NEBCALLBACK_SERVICE_CHECK_DATA, nebapi_module_handle, 0, cb_service_check_data);
+	// neb_register_callback(NEBCALLBACK_HOST_STATUS_DATA, nebapi_module_handle, 0, cb_host_status_data);
 
 	return NEB_OK;
 }
@@ -231,8 +303,8 @@ int nebmodule_deinit(int flags, int reason)
 
 	// Deregister all callbacks
 	neb_deregister_callback(NEBCALLBACK_HOST_CHECK_DATA, cb_host_check_data);
-	neb_deregister_callback(NEBCALLBACK_SERVICE_CHECK_DATA, cb_service_check_data);
-	neb_deregister_callback(NEBCALLBACK_HOST_STATUS_DATA, cb_host_status_data);
+	// neb_deregister_callback(NEBCALLBACK_SERVICE_CHECK_DATA, cb_service_check_data);
+	// neb_deregister_callback(NEBCALLBACK_HOST_STATUS_DATA, cb_host_status_data);
 
 	// Wait for the web server thread to terminate
 	nm_log(NSLOG_INFO_MESSAGE, "Wait for the web server thread to terminate");
