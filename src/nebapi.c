@@ -44,52 +44,53 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 	{
 		struct mg_http_message *hm = (struct mg_http_message *)ev_data;
 
-		struct mg_str caps[3];
-		if (mg_match(hm->uri, mg_str("/hoststatus/#/"), caps))
+		if (mg_http_match_uri(hm, "/hoststatus"))
 		{
 
-			// https://mongoose.ws/documentation/#mg_match
-			char hostname[256]; // Enough for any valid hostname
+			char hostname[1024];
+			mg_http_get_var(&hm->query, "hostname", hostname, sizeof(hostname));
 
-			mg_http_get_var(&hm->uri, "#", hostname, sizeof(hostname));
-			printf("Hostname: '%s'\n", caps[0]);
+			//nm_log(NSLOG_PROCESS_INFO, "NEB-API: Requested host status for '%s'", hostname);
 
-			// A hostname is set, return the host status for this host
-			const char *host_status = (const char *)g_hash_table_lookup(map_hoststatus, (gpointer)hostname);
-			if (host_status != NULL)
+			if (strlen(hostname) == 0)
 			{
-				mg_http_reply(c, 200, "Content-Type: application/json\r\n", host_status);
+				// Return the latest host status for all hosts
+
+				GList *values = g_hash_table_get_values(map_hoststatus);
+				GString *json_array = g_string_new("[");
+
+				// Iterate through the list and append the strings
+				for (GList *iter = values; iter != NULL; iter = iter->next)
+				{
+					const char *current_value = (const char *)iter->data;
+					g_string_append(json_array, current_value);
+
+					// If there is a next element, append a comma
+					if (iter->next != NULL)
+					{
+						g_string_append(json_array, ",");
+					}
+				}
+
+				g_string_append(json_array, "]");
+				mg_http_reply(c, 200, "Content-Type: application/json\r\n", json_array->str);
+
+				g_string_free(json_array, TRUE);
+				g_list_free(values);
 			}
 			else
 			{
-				mg_http_reply(c, 404, "Content-Type: text/plain\r\n", "Host not found");
-			}
-		}
-		else if (mg_http_match_uri(hm, "/hoststatus"))
-		{
-			// Return the latest host status for all hosts
-
-			GList *values = g_hash_table_get_values(map_hoststatus);
-			GString *json_array = g_string_new("[");
-
-			// Iterate through the list and append the strings
-			for (GList *iter = values; iter != NULL; iter = iter->next)
-			{
-				const char *current_value = (const char *)iter->data;
-				g_string_append(json_array, current_value);
-
-				// If there is a next element, append a comma
-				if (iter->next != NULL)
+				// Return the latest host status for a specific host
+				const char *hoststatus = g_hash_table_lookup(map_hoststatus, hostname);
+				if (hoststatus != NULL)
 				{
-					g_string_append(json_array, ",");
+					mg_http_reply(c, 200, "Content-Type: application/json\r\n", hoststatus);
+				}
+				else
+				{
+					mg_http_reply(c, 404, "Content-Type: application/json\r\n", "{\"error\": \"Host not found\"}");
 				}
 			}
-
-			g_string_append(json_array, "]");
-			mg_http_reply(c, 200, "Content-Type: application/json\r\n", json_array->str);
-
-			g_string_free(json_array, TRUE);
-			g_list_free(values);
 		}
 
 		if (mg_http_match_uri(hm, "/websocket"))
