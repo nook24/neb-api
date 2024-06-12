@@ -14,6 +14,7 @@
         "nebstructs_json.h": "c",
         "commands.h": "c",
         "string.h": "c",
-        "json.h": "c"
+        "json.h": "c",
+        "functional": "c"
     }
 }

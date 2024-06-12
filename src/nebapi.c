@@ -31,6 +31,7 @@ pthread_t tid;
 
 // Hash tables
 GHashTable *map_hoststatus;
+GHashTable *map_servicestatus;
 
 // HTTP request callback
 static void fn(struct mg_connection *c, int ev, void *ev_data)
@@ -46,11 +47,10 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 
 		if (mg_http_match_uri(hm, "/hoststatus"))
 		{
-
 			char hostname[1024];
 			mg_http_get_var(&hm->query, "hostname", hostname, sizeof(hostname));
 
-			//nm_log(NSLOG_PROCESS_INFO, "NEB-API: Requested host status for '%s'", hostname);
+			// nm_log(NSLOG_PROCESS_INFO, "NEB-API: Requested host status for '%s'", hostname);
 
 			if (strlen(hostname) == 0)
 			{
@@ -90,6 +90,61 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 				{
 					mg_http_reply(c, 404, "Content-Type: application/json\r\n", "{\"error\": \"Host not found\"}");
 				}
+			}
+		}
+
+		if (mg_http_match_uri(hm, "/servicestatus"))
+		{
+			char hostname[1024];
+			char service_description[1024];
+			mg_http_get_var(&hm->query, "hostname", hostname, sizeof(hostname));
+			mg_http_get_var(&hm->query, "service_description", service_description, sizeof(service_description));
+
+			nm_log(NSLOG_PROCESS_INFO, "NEB-API: Requested service status for '%s/%s'", hostname, service_description);
+
+			if (strlen(hostname) == 0 || strlen(service_description) == 0)
+			{
+				// Return the latest service status for all services
+
+				GList *values = g_hash_table_get_values(map_servicestatus);
+				GString *json_array = g_string_new("[");
+
+				// Iterate through the list and append the strings
+				for (GList *iter = values; iter != NULL; iter = iter->next)
+				{
+					const char *current_value = (const char *)iter->data;
+					g_string_append(json_array, current_value);
+
+					// If there is a next element, append a comma
+					if (iter->next != NULL)
+					{
+						g_string_append(json_array, ",");
+					}
+				}
+
+				g_string_append(json_array, "]");
+				mg_http_reply(c, 200, "Content-Type: application/json\r\n", json_array->str);
+
+				g_string_free(json_array, TRUE);
+				g_list_free(values);
+			}
+			else
+			{
+				// Return the latest service status for a specific service
+				char *key = nm_malloc(strlen(hostname) + strlen(service_description) + 2); // +2 for the null-terminator and separator
+				sprintf(key, "%s_%s", hostname, service_description);
+
+				const char *servicestatus = g_hash_table_lookup(map_servicestatus, key);
+				if (servicestatus != NULL)
+				{
+					mg_http_reply(c, 200, "Content-Type: application/json\r\n", servicestatus);
+				}
+				else
+				{
+					mg_http_reply(c, 404, "Content-Type: application/json\r\n", "{\"error\": \"Service not found\"}");
+				}
+
+				free(key);
 			}
 		}
 
@@ -299,6 +354,47 @@ static int cb_host_status_data(int cb, void *data)
 	return NEB_OK;
 }
 
+// Naemon callback for service status
+static int cb_service_status_data(int cb, void *data)
+{
+	json_object *servicestatus_object;
+	const char *json_string;
+
+	nebstruct_service_status_data *ds = (nebstruct_service_status_data *)data;
+	if (ds == NULL)
+	{
+		return NEB_OK;
+	}
+
+	service *current_service = (service *)ds->object_ptr;
+
+	// Encode the current service status event as JSON object
+	servicestatus_object = nebstruct_encode_service_status_as_json(ds);
+
+	// Convert the JSON object to a string
+	json_string = json_object_to_json_string(servicestatus_object);
+
+	// Push service status to web sockets clients (async)
+	push_to_clients(&mgr, json_string);
+
+	// Push latest service status into hashmap
+	char *key = nm_malloc(strlen(current_service->host_name) + strlen(current_service->description) + 1);
+	sprintf(key, "%s%s", current_service->host_name, current_service->description);
+
+	//sprintf(key, "%s_%s", current_service->host_name, current_service->description);
+
+	printf("Key: '%s'\n", key);
+
+	g_hash_table_insert(map_servicestatus, (gpointer)key, g_strdup(json_string));
+
+	// Release resources
+	json_object_put(servicestatus_object);
+
+	free(key);
+
+	return NEB_OK;
+}
+
 // Broker initialize function
 int nebmodule_init(int flags, char *args, nebmodule *handle)
 {
@@ -326,11 +422,13 @@ int nebmodule_init(int flags, char *args, nebmodule *handle)
 
 	// Create hashtabls
 	map_hoststatus = g_hash_table_new_full(g_str_hash, g_str_equal, NULL, g_free);
+	map_servicestatus = g_hash_table_new_full(g_str_hash, g_str_equal, NULL, g_free);
 
 	// Register callbacks
 	neb_register_callback(NEBCALLBACK_HOST_CHECK_DATA, nebapi_module_handle, 0, cb_host_check_data);
-	// neb_register_callback(NEBCALLBACK_SERVICE_CHECK_DATA, nebapi_module_handle, 0, cb_service_check_data);
+	neb_register_callback(NEBCALLBACK_SERVICE_CHECK_DATA, nebapi_module_handle, 0, cb_service_check_data);
 	neb_register_callback(NEBCALLBACK_HOST_STATUS_DATA, nebapi_module_handle, 0, cb_host_status_data);
+	neb_register_callback(NEBCALLBACK_SERVICE_STATUS_DATA, nebapi_module_handle, 0, cb_service_status_data);
 
 	return NEB_OK;
 }
@@ -341,8 +439,9 @@ int nebmodule_deinit(int flags, int reason)
 
 	// Deregister all callbacks
 	neb_deregister_callback(NEBCALLBACK_HOST_CHECK_DATA, cb_host_check_data);
-	// neb_deregister_callback(NEBCALLBACK_SERVICE_CHECK_DATA, cb_service_check_data);
+	neb_deregister_callback(NEBCALLBACK_SERVICE_CHECK_DATA, cb_service_check_data);
 	neb_deregister_callback(NEBCALLBACK_HOST_STATUS_DATA, cb_host_status_data);
+	neb_deregister_callback(NEBCALLBACK_SERVICE_STATUS_DATA, cb_service_status_data);
 
 	// Wait for the web server thread to terminate
 	nm_log(NSLOG_INFO_MESSAGE, "Wait for the web server thread to terminate");
@@ -351,6 +450,7 @@ int nebmodule_deinit(int flags, int reason)
 
 	// Cleanup hashmaps
 	g_hash_table_destroy(map_hoststatus);
+	g_hash_table_destroy(map_servicestatus);
 
 	return NEB_OK;
 }
