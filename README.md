@@ -84,7 +84,7 @@ Supported end points:
 
 
 <details>
-  <summary><code>GET</code> <code><b>/hoststatus?hostname{name}</b></code> <code>(gets hoststatus record for one host)</code></summary>
+  <summary><code>GET</code> <code><b>/hoststatus?hostname={name}</b></code> <code>(gets hoststatus record for one host)</code></summary>
 
 ##### Parameters
 

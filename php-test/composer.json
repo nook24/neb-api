@@ -1,0 +1,20 @@
+{
+    "name": "statusengine/php-test",
+    "description": "PHP Files to test the JSON output of the C Broker Module",
+    "type": "project",
+    "require": {
+        "guzzlehttp/guzzle": "^7.8"
+    },
+    "licenes": "MIT Licenes",
+    "autoload": {
+        "psr-4": {
+            "Statusengine\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "nook24",
+            "email": "info@nook24.eu"
+        }
+    ]
+}

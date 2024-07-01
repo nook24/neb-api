@@ -29,6 +29,9 @@ struct mg_mgr mgr;
 // Web server thread
 pthread_t tid;
 
+// Mutex for hashmaps
+pthread_mutex_t status_mutex;
+
 // Hash tables
 GHashTable *map_hoststatus;
 GHashTable *map_servicestatus;
@@ -43,6 +46,9 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 	}
 	else if (ev == MG_EV_HTTP_MSG)
 	{
+		int err;
+		char errmsg[256] = "Unknown error";
+
 		struct mg_http_message *hm = (struct mg_http_message *)ev_data;
 
 		if (mg_http_match_uri(hm, "/hoststatus"))
@@ -51,6 +57,13 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 			mg_http_get_var(&hm->query, "hostname", hostname, sizeof(hostname));
 
 			// nm_log(NSLOG_PROCESS_INFO, "NEB-API: Requested host status for '%s'", hostname);
+
+			err = pthread_mutex_lock(&status_mutex);
+			if (err)
+			{
+				strerror_r(err, errmsg, 256);
+				nm_log(NSLOG_RUNTIME_ERROR, "Error locking status_mutex: %s (%d)", errmsg, err);
+			}
 
 			if (strlen(hostname) == 0)
 			{
@@ -91,6 +104,13 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 					mg_http_reply(c, 404, "Content-Type: application/json\r\n", "{\"error\": \"Host not found\"}");
 				}
 			}
+
+			err = pthread_mutex_unlock(&status_mutex);
+			if (err)
+			{
+				strerror_r(err, errmsg, 256);
+				nm_log(NSLOG_RUNTIME_ERROR, "Error unlocking status_mutex: %s (%d)", errmsg, err);
+			}
 		}
 
 		if (mg_http_match_uri(hm, "/servicestatus"))
@@ -101,6 +121,13 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 			mg_http_get_var(&hm->query, "service_description", service_description, sizeof(service_description));
 
 			nm_log(NSLOG_PROCESS_INFO, "NEB-API: Requested service status for '%s/%s'", hostname, service_description);
+
+			err = pthread_mutex_lock(&status_mutex);
+			if (err)
+			{
+				strerror_r(err, errmsg, 256);
+				nm_log(NSLOG_RUNTIME_ERROR, "Error locking status_mutex: %s (%d)", errmsg, err);
+			}
 
 			if (strlen(hostname) == 0 || strlen(service_description) == 0)
 			{
@@ -145,6 +172,13 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 				}
 
 				free(key);
+			}
+
+			err = pthread_mutex_unlock(&status_mutex);
+			if (err)
+			{
+				strerror_r(err, errmsg, 256);
+				nm_log(NSLOG_RUNTIME_ERROR, "Error unlocking status_mutex: %s (%d)", errmsg, err);
 			}
 		}
 
@@ -327,6 +361,8 @@ static int cb_host_status_data(int cb, void *data)
 {
 	json_object *hoststatus_object;
 	const char *json_string;
+	int err;
+	char errmsg[256] = "Unknown error";
 
 	nebstruct_host_status_data *ds = (nebstruct_host_status_data *)data;
 	if (ds == NULL)
@@ -346,7 +382,21 @@ static int cb_host_status_data(int cb, void *data)
 	push_to_clients(&mgr, json_string);
 
 	// Push latest host status into hashmap
-	g_hash_table_insert(map_hoststatus, (gpointer)current_host->name, g_strdup(json_string));
+	err = pthread_mutex_lock(&status_mutex);
+	if (err)
+	{
+		strerror_r(err, errmsg, 256);
+		nm_log(NSLOG_RUNTIME_ERROR, "Error locking status_mutex: %s (%d)", errmsg, err);
+	}
+
+	g_hash_table_insert(map_hoststatus, g_strdup(current_host->name), g_strdup(json_string));
+
+	err = pthread_mutex_unlock(&status_mutex);
+	if (err)
+	{
+		strerror_r(err, errmsg, 256);
+		nm_log(NSLOG_RUNTIME_ERROR, "Error unlocking status_mutex: %s (%d)", errmsg, err);
+	}
 
 	// Release resources
 	json_object_put(hoststatus_object);
@@ -359,6 +409,8 @@ static int cb_service_status_data(int cb, void *data)
 {
 	json_object *servicestatus_object;
 	const char *json_string;
+	int err;
+	char errmsg[256] = "Unknown error";
 
 	nebstruct_service_status_data *ds = (nebstruct_service_status_data *)data;
 	if (ds == NULL)
@@ -378,14 +430,29 @@ static int cb_service_status_data(int cb, void *data)
 	push_to_clients(&mgr, json_string);
 
 	// Push latest service status into hashmap
-	char *key = nm_malloc(strlen(current_service->host_name) + strlen(current_service->description) + 1);
-	sprintf(key, "%s%s", current_service->host_name, current_service->description);
-
-	//sprintf(key, "%s_%s", current_service->host_name, current_service->description);
+	char *key = nm_malloc(strlen(current_service->host_name) + strlen(current_service->description) + 2); // +2 for the null-terminator and separator
+	sprintf(key, "%s_%s", current_service->host_name, current_service->description);
 
 	printf("Key: '%s'\n", key);
 
-	g_hash_table_insert(map_servicestatus, (gpointer)key, g_strdup(json_string));
+	err = pthread_mutex_lock(&status_mutex);
+	if (err)
+	{
+		strerror_r(err, errmsg, 256);
+		nm_log(NSLOG_RUNTIME_ERROR, "Error locking status_mutex: %s (%d)", errmsg, err);
+	}
+
+	g_hash_table_insert(map_servicestatus, g_strdup(key), g_strdup(json_string));
+
+	guint size = g_hash_table_size(map_servicestatus);
+    g_print("The hash table contains %u elements.\n", size);
+
+	err = pthread_mutex_unlock(&status_mutex);
+	if (err)
+	{
+		strerror_r(err, errmsg, 256);
+		nm_log(NSLOG_RUNTIME_ERROR, "Error unlocking status_mutex: %s (%d)", errmsg, err);
+	}
 
 	// Release resources
 	json_object_put(servicestatus_object);
@@ -412,6 +479,12 @@ int nebmodule_init(int flags, char *args, nebmodule *handle)
 
 	// Welcome messages
 	nm_log(NSLOG_INFO_MESSAGE, "NEB-API: Hi :)");
+
+	if (pthread_mutex_init(&status_mutex, NULL) != 0)
+	{
+		nm_log(NSLOG_RUNTIME_ERROR, "NEB-API: Failed to init status_mutex");
+		return NEB_ERROR;
+	}
 
 	// Start the web server in a separate thread
 	if (pthread_create(&tid, NULL, web_server_thread, NULL) != 0)
